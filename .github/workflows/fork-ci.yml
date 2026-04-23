@@ -1,9 +1,7 @@
 name: "Fork CI – Lint & Validate"
 
-# ────────────────────────────────────────────────────────────────────────────
-# FORK-ONLY: This workflow MUST NOT run on the upstream electron/electron repo.
-# The `github.repository` guard below enforces this at every job.
-# ────────────────────────────────────────────────────────────────────────────
+# FORK-ONLY: Runs on all pushes to feature/fix/ci/build branches and all PRs to main.
+# No skip conditions — every job always runs.
 
 on:
   push:
@@ -12,13 +10,12 @@ on:
       - "fix/**"
       - "ci/**"
       - "build/**"
+      - "build"
       - "chore/**"
       - "refactor/**"
   pull_request:
     branches:
       - main
-      - "feature/**"
-      - "ci/**"
     types: [opened, synchronize, reopened]
 
 defaults:
@@ -34,28 +31,27 @@ permissions:
   pull-requests: read
 
 jobs:
-  # ── Guard: abort immediately if this somehow runs on upstream ────────────
+  # ── Guard: abort if somehow run on upstream ────────────────────────────────
   repo-guard:
     name: "🔒 Fork Repo Guard"
     runs-on: ubuntu-latest
     steps:
-      - name: Verify this is the fork (not upstream)
+      - name: Verify this is the fork
         run: |
           if [[ "${{ github.repository }}" == "electron/electron" ]]; then
-            echo "::error::This workflow must NOT run on the upstream electron/electron repo."
+            echo "::error::This workflow must NOT run on upstream electron/electron."
             exit 1
           fi
           echo "✅ Running on fork: ${{ github.repository }}"
 
-  # ── Node.js Lint & Type-check ─────────────────────────────────────────────
+  # ── Lint & TypeCheck ─────────────────────────────────────────────────────
   lint:
     name: "🔍 Lint & Type Check"
     needs: repo-guard
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout fork
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -63,24 +59,22 @@ jobs:
         id: nvmrc
         run: echo "NODE_VERSION=$(cat .nvmrc)" >> "$GITHUB_OUTPUT"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ steps.nvmrc.outputs.NODE_VERSION }}
           cache: "yarn"
 
-      - name: Enable Corepack / Yarn
+      - name: Enable Corepack
         run: corepack enable
 
-      - name: Restore node_modules cache
+      - name: Cache node_modules
         uses: actions/cache@v4
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-          restore-keys: |
-            node-modules-${{ runner.os }}-
+          restore-keys: node-modules-${{ runner.os }}-
 
-      - name: Install JS dependencies
+      - name: Install dependencies
         run: yarn install --immutable
 
       - name: Run lint
@@ -92,84 +86,88 @@ jobs:
       - name: TypeScript – electron
         run: yarn tsc -p tsconfig.electron.json --noEmit
 
-      - name: Check GHA workflow consistency
-        run: node script/copy-pipeline-segment-publish.js --check
-        continue-on-error: true   # informational; not fatal for fork PRs
-
   # ── Patch file validation ─────────────────────────────────────────────────
   patches:
     name: "🩹 Patch Validation"
     needs: repo-guard
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - name: Checkout fork
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Verify patch files are well-formed
         run: |
           echo "Checking patch directory structure..."
-          find patches/ -name "*.patch" | while read -r p; do
+          find patches/ -name "*.patch" 2>/dev/null | while read -r p; do
             if ! git apply --check --stat "$p" 2>/dev/null; then
               echo "::warning::Patch may not apply cleanly: $p"
             fi
           done
           echo "Patch check complete."
 
-      - name: Ensure no upstream-only CI secrets are referenced in fork patches
+      - name: Ensure no upstream-only secrets in patches
         run: |
           FORBIDDEN="CHROMIUM_GIT_COOKIE\|PATCH_UP_APP_CREDS\|DD_API_KEY"
           if grep -r "$FORBIDDEN" patches/ 2>/dev/null; then
             echo "::error::Patches must not reference upstream-only secrets."
             exit 1
           fi
-          echo "✅ No forbidden secret references found in patches."
+          echo "✅ No forbidden secret references in patches."
 
-  # ── Markdown / docs lint ──────────────────────────────────────────────────
-  docs-lint:
-    name: "📄 Docs Lint"
+  # ── Workflow safety check ─────────────────────────────────────────────────
+  workflow-safety:
+    name: "🛡️ Fork Workflow Safety"
     needs: repo-guard
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Checkout fork
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: ".nvmrc"
-          cache: "yarn"
+      - name: Ensure all fork workflows have repo guards
+        run: |
+          FAIL=0
+          for f in .github/workflows/fork-*.yml; do
+            if ! grep -q "github.repository" "$f"; then
+              echo "::error::$f is missing a github.repository guard!"
+              FAIL=1
+            fi
+          done
+          [[ $FAIL -eq 0 ]] && echo "✅ All fork workflows have repo guards."
+          exit $FAIL
 
-      - name: Enable Corepack
-        run: corepack enable
+      - name: Check for upstream ARC runners in fork workflows
+        run: |
+          FORBIDDEN="electron-arc-centralus\|electron-arc-eastus\|ubuntu-slim"
+          FOUND=$(grep -r "$FORBIDDEN" .github/workflows/fork-*.yml 2>/dev/null || true)
+          if [[ -n "$FOUND" ]]; then
+            echo "::error::Fork workflows must NOT use upstream ARC runners."
+            echo "$FOUND"
+            exit 1
+          fi
+          echo "✅ No forbidden runner references in fork workflows."
 
-      - name: Install dependencies
-        run: yarn install --immutable
-
-      - name: Run Markdown lint
-        run: yarn lint:markdown
-        continue-on-error: true   # advisory only
-
-  # ── Summary gate (required status check) ─────────────────────────────────
+  # ── Required gate ─────────────────────────────────────────────────────────
   fork-ci-complete:
     name: "✅ Fork CI Complete"
-    needs: [lint, patches, docs-lint]
+    needs: [lint, patches, workflow-safety]
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - name: Evaluate required jobs
+      - name: Check all required jobs
         run: |
           LINT="${{ needs.lint.result }}"
           PATCHES="${{ needs.patches.result }}"
-          if [[ "$LINT" == "failure" || "$LINT" == "cancelled" ]]; then
-            echo "::error::Lint job failed or was cancelled."
-            exit 1
-          fi
-          if [[ "$PATCHES" == "failure" || "$PATCHES" == "cancelled" ]]; then
-            echo "::error::Patch validation failed or was cancelled."
-            exit 1
-          fi
-          echo "🎉 All required fork CI checks passed."
+          SAFETY="${{ needs.workflow-safety.result }}"
+
+          FAIL=0
+          [[ "$LINT" == "failure" || "$LINT" == "cancelled" ]] && \
+            echo "::error::Lint failed." && FAIL=1
+          [[ "$PATCHES" == "failure" || "$PATCHES" == "cancelled" ]] && \
+            echo "::error::Patch validation failed." && FAIL=1
+          [[ "$SAFETY" == "failure" || "$SAFETY" == "cancelled" ]] && \
+            echo "::error::Workflow safety check failed." && FAIL=1
+
+          [[ $FAIL -eq 0 ]] && echo "🎉 All fork CI checks passed."
+          exit $FAIL
