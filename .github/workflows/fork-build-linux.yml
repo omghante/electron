@@ -55,10 +55,13 @@ jobs:
 
       - name: Add swap space
         run: |
-          sudo fallocate -l 16G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          # Remove any existing swap files first
+          sudo swapoff -a || true
+          sudo rm -f /swapfile || true
+          sudo fallocate -l 16G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
           echo "=== Memory info ==="
           free -h
 
