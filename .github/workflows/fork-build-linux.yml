@@ -131,19 +131,17 @@ jobs:
       - name: Init Build Tools
         run: |
           cd src/electron
-          e init -f --root=$(dirname $(pwd)) --out=Default testing --import testing --target-cpu x64
+          e init -f --root=$(cd ../.. && pwd) --out=Default testing --import testing --target-cpu x64
 
       - name: Run gclient sync
         run: |
-          cd src
           gclient sync --with_branch_heads --with_tags --no-history -vv 2>&1 | tail -100
         env:
           DEPOT_TOOLS_UPDATE: 0
 
       - name: Apply Electron Patches
         run: |
-          cd src/electron
-          /usr/bin/python3 script/apply_all_patches.py patches/config.json
+          /usr/bin/python3 src/electron/script/apply_all_patches.py src/electron/patches/config.json
 
       - name: Run Electron Only Hooks
         run: |
