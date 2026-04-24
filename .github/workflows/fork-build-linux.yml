@@ -143,7 +143,7 @@ jobs:
       - name: Apply Electron Patches
         run: |
           cd src/electron
-          /usr/bin/python3 script/apply_all_patches.py
+          /usr/bin/python3 script/apply_all_patches.py patches/config.json
 
       - name: Run Electron Only Hooks
         run: |
