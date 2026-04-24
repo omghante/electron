@@ -121,6 +121,22 @@ class GtkMessageBox : private NativeWindowObserver {
       gtk::SetGtkTransientForAura(dialog_, parent_->GetNativeWindow(),
                                   platform_);
       gtk_window_set_modal(GTK_WINDOW(dialog_), TRUE);
+    } else {
+      // When there is no parent window (i.e., showMessageBox is called before
+      // any BrowserWindow is created), the desktop environment's startup
+      // notification may still be pending. On GNOME, this causes the WM to
+      // keep the application in "starting" state for up to ~30 seconds,
+      // blocking event delivery and delaying promise resolution.
+      //
+      // Calling gdk_notify_startup_complete() tells the WM that the
+      // application has finished starting, which clears the startup
+      // notification timeout and allows events to be processed immediately.
+      gdk_notify_startup_complete();
+
+      // Mark this as a dialog so the WM treats it appropriately.
+      gtk_window_set_type_hint(GTK_WINDOW(dialog_),
+                               GDK_WINDOW_TYPE_HINT_DIALOG);
+      gtk_window_set_modal(GTK_WINDOW(dialog_), TRUE);
     }
   }
 
@@ -181,6 +197,20 @@ class GtkMessageBox : private NativeWindowObserver {
 
   void RunAsynchronous(MessageBoxCallback callback) {
     callback_ = std::move(callback);
+
+    if (!parent_) {
+      // When there is no parent BrowserWindow, Chromium's message loop may
+      // not be actively pumping GLib events, which delays GTK's "response"
+      // signal delivery by up to ~30 seconds. Using gtk_dialog_run() creates
+      // a nested GLib main loop that properly dispatches all GTK events,
+      // ensuring the dialog responds immediately when the user clicks a
+      // button. This is safe because there is no parent window to interact
+      // with during this time.
+      Show();
+      int response = gtk_dialog_run(GTK_DIALOG(dialog_));
+      OnResponseDialog(dialog_, response < 0 ? cancel_id_ : response);
+      return;
+    }
 
     signals_.emplace_back(dialog_, "delete-event",
                           base::BindRepeating(gtk_widget_hide_on_delete));
