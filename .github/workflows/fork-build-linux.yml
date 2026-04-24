@@ -118,6 +118,8 @@ jobs:
       - name: Install depot_tools
         run: |
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $HOME/depot_tools
+          # Bootstrap depot_tools so its python wrappers work
+          $HOME/depot_tools/ensure_bootstrap
           echo "$HOME/depot_tools" >> $GITHUB_PATH
           echo "$HOME/depot_tools/python-bin" >> $GITHUB_PATH
 
@@ -141,7 +143,7 @@ jobs:
       - name: Apply Electron Patches
         run: |
           cd src/electron
-          python3 script/apply_all_patches.py
+          /usr/bin/python3 script/apply_all_patches.py
 
       - name: Run Electron Only Hooks
         run: |
