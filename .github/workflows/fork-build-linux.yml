@@ -147,7 +147,7 @@ jobs:
 
       - name: Run Electron Only Hooks
         run: |
-          e d gclient runhooks --spec="solutions=[{'name':'src/electron','url':None,'deps_file':'DEPS','custom_vars':{'process_deps':False},'managed':False}]"
+          e d gclient runhooks --spec="solutions=[{'name':'src/electron','url':None,'deps_file':'DEPS','custom_vars':{'process_deps':False,'install_sysroot':False},'managed':False}]"
 
       - name: Check disk space before build
         run: df -h /
