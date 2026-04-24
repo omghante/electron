@@ -139,14 +139,6 @@ jobs:
         env:
           DEPOT_TOOLS_UPDATE: 0
 
-      - name: Apply Electron Patches
-        run: |
-          /usr/bin/python3 src/electron/script/apply_all_patches.py src/electron/patches/config.json
-
-      - name: Run Electron Only Hooks
-        run: |
-          e d gclient runhooks --spec="solutions=[{'name':'src/electron','url':None,'deps_file':'DEPS','custom_vars':{'process_deps':False,'install_sysroot':False},'managed':False}]"
-
       - name: Check disk space before build
         run: df -h /
 
