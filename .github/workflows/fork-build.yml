@@ -1,4 +1,4 @@
-name: Build
+name: Fork Build
 
 on:
   workflow_dispatch:
@@ -47,7 +47,7 @@ permissions: {}
 
 jobs:
   setup:
-    if: github.repository == 'electron/electron'
+    if: true
     runs-on: ubuntu-slim
     permissions:
       contents: read
@@ -454,7 +454,7 @@ jobs:
     permissions:
       contents: read
     needs: [docs-only, macos-x64, macos-arm64, linux-x64, linux-x64-asan, linux-arm, linux-arm64, build-siso-windows, windows-x64, windows-x86, windows-arm64]
-    if: always() && github.repository == 'electron/electron'
+    if: always()
     steps:
     - name: Fail if any needed job failed or was cancelled
       if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
