@@ -110,6 +110,11 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
+      - name: Ensure git packed-refs exists
+        run: |
+          cd src/electron
+          git pack-refs --all
+
       - name: Install Build Tools
         run: |
           npm i -g @electron/build-tools
