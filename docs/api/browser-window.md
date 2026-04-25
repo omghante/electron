@@ -1097,6 +1097,20 @@ Returns `Integer[]` - Contains the window's current position.
 > [!NOTE]
 > On Wayland, this method will return `[0, 0]` as introspecting or programmatically changing the global window coordinates is prohibited.
 
+#### `win.getCursorPoint()`
+
+Returns [`Point`](structures/point.md) - The current position of the mouse cursor
+relative to this window, where `(0, 0)` represents the top-left corner of the
+window frame.
+
+This method works on all platforms, including Wayland, where
+[`screen.getCursorScreenPoint()`](screen.md#screengetcursorscreenpoint) is not
+supported.
+
+> [!NOTE]
+> The returned coordinates are relative to the window frame, not the web
+> content area. For framed windows, this includes the title bar.
+
 #### `win.setTitle(title)`
 
 * `title` string
