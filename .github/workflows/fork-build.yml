@@ -1,4 +1,4 @@
-name: Build
+name: Fork Build
 
 on:
   workflow_dispatch:
@@ -47,6 +47,7 @@ permissions: {}
 
 jobs:
   setup:
+    if: true
     runs-on: ubuntu-slim
     permissions:
       contents: read
