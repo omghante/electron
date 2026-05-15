@@ -1,4 +1,4 @@
-name: Apply Patches
+name: Fork Apply Patches
 
 on:
   pull_request:
@@ -11,8 +11,8 @@ concurrency:
 
 jobs:
   setup:
-    if: github.repository == 'electron/electron'
-    runs-on: ubuntu-slim
+    if: true
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read

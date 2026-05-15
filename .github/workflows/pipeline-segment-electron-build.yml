@@ -104,9 +104,6 @@ jobs:
         path: src/electron
         fetch-depth: 0
         ref: ${{ github.event.pull_request.head.sha }}
-    - name: Install pinned Homebrew
-      if: ${{ inputs.target-platform == 'macos' }}
-      uses: ./src/electron/.github/actions/install-homebrew
     - name: Setup SSH Debugging
       if: ${{ inputs.target-platform == 'macos' && (inputs.enable-ssh || env.ACTIONS_STEP_DEBUG == 'true') }}
       uses: ./src/electron/.github/actions/ssh-debug
@@ -192,6 +189,8 @@ jobs:
       run: |
         (cd src/electron && git checkout .) && node src/electron/script/generate-deps-hash.js
         echo "DEPSHASH=$(cat src/electron/.depshash)" >> $GITHUB_ENV
+    - name: Add CHROMIUM_BUILDTOOLS_PATH to env
+      run: echo "CHROMIUM_BUILDTOOLS_PATH=$(pwd)/src/buildtools" >> $GITHUB_ENV
     - name: Free up space (macOS)
       if: ${{ inputs.target-platform == 'macos' }}
       uses: ./src/electron/.github/actions/free-space-macos
