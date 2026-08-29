@@ -1,0 +1,210 @@
+name: Fork - Build Electron (Linux x64)
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-build-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  ELECTRON_OUT_DIR: Default
+
+jobs:
+  build-linux-x64:
+    # Only run on the fork, not on upstream electron/electron
+    if: github.repository != 'electron/electron'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Free up disk space
+        run: |
+          echo "=== Disk space BEFORE cleanup ==="
+          df -h /
+          # Remove unnecessary pre-installed software to reclaim disk
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/local/graalvm
+          sudo rm -rf /usr/local/lib/node_modules
+          sudo rm -rf /opt/pipx
+          sudo rm -rf /opt/az
+          sudo rm -rf /usr/share/az_*
+          sudo rm -rf /usr/share/miniconda
+          sudo rm -rf /usr/local/sqlpackage
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /usr/local/share/edge_driver
+          sudo rm -rf /usr/local/share/gecko_driver
+          sudo docker image prune --all --force || true
+          sudo apt-get purge -y google-cloud-cli azure-cli microsoft-edge-stable google-chrome-stable dotnet-* || true
+          sudo apt-get autoremove -y || true
+          sudo apt-get clean || true
+          echo "=== Disk space AFTER cleanup ==="
+          df -h /
+
+      - name: Add swap space
+        run: |
+          # Remove any existing swap files first
+          sudo swapoff -a || true
+          sudo rm -f /swapfile || true
+          sudo fallocate -l 16G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          echo "=== Memory info ==="
+          free -h
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            lld \
+            git \
+            curl \
+            python3 \
+            python3-pip \
+            pkg-config \
+            libdbus-1-dev \
+            libgtk-3-dev \
+            libnotify-dev \
+            libasound2-dev \
+            libcap-dev \
+            libcups2-dev \
+            libxtst-dev \
+            libxss1 \
+            libnss3-dev \
+            libdrm-dev \
+            libgbm-dev \
+            libpango1.0-dev \
+            libcurl4-openssl-dev \
+            gperf \
+            bison \
+            uuid-dev \
+            ninja-build
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Create src directory
+        run: mkdir -p src
+
+      - name: Checkout Electron
+        uses: actions/checkout@v4
+        with:
+          path: src/electron
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Ensure git packed-refs exists
+        run: |
+          cd src/electron
+          git pack-refs --all
+
+      - name: Install Build Tools
+        run: |
+          npm i -g @electron/build-tools
+          e auto-update disable
+
+      - name: Install depot_tools
+        run: |
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $HOME/depot_tools
+          # Bootstrap depot_tools so its python wrappers work
+          $HOME/depot_tools/ensure_bootstrap
+          echo "$HOME/depot_tools" >> $GITHUB_PATH
+          echo "$HOME/depot_tools/python-bin" >> $GITHUB_PATH
+
+      - name: Generate DEPS Hash
+        run: |
+          node src/electron/script/generate-deps-hash.js
+          echo "DEPSHASH=$(cat src/electron/.depshash)" >> $GITHUB_ENV
+
+      - name: Init Build Tools
+        run: |
+          cd src/electron
+          e init -f --root=$(cd ../.. && pwd) --out=Default testing --import testing --target-cpu x64
+
+      - name: Run gclient sync
+        run: |
+          gclient sync --with_branch_heads --with_tags --no-history -vv 2>&1 | tail -100
+        env:
+          DEPOT_TOOLS_UPDATE: 0
+
+      - name: Check disk space before build
+        run: df -h /
+
+      - name: Build Electron
+        run: |
+          cd src
+          NINJA_SUMMARIZE_BUILD=1 e build --target electron:testing_build
+        env:
+          CHROMIUM_BUILDTOOLS_PATH: ${{ github.workspace }}/src/buildtools
+
+      - name: Create dist.zip
+        run: |
+          cd src
+          e build --target electron:electron_dist_zip
+
+      - name: Check disk space after build
+        if: always()
+        run: df -h /
+
+      - name: Prepare release artifacts
+        run: |
+          mkdir -p release-artifacts
+          cp src/out/Default/dist.zip release-artifacts/electron-linux-x64.zip
+          # Also copy chromedriver if available
+          if [ -f src/out/Default/chromedriver.zip ]; then
+            cp src/out/Default/chromedriver.zip release-artifacts/chromedriver-linux-x64.zip
+          fi
+          echo "## Build Info" > release-artifacts/BUILD_INFO.md
+          echo "- **Branch:** ${{ github.head_ref }}" >> release-artifacts/BUILD_INFO.md
+          echo "- **Commit:** ${{ github.event.pull_request.head.sha }}" >> release-artifacts/BUILD_INFO.md
+          echo "- **PR:** #${{ github.event.pull_request.number }}" >> release-artifacts/BUILD_INFO.md
+          echo "- **Platform:** linux-x64" >> release-artifacts/BUILD_INFO.md
+          echo "- **Build Date:** $(date -u)" >> release-artifacts/BUILD_INFO.md
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-linux-x64-${{ github.event.pull_request.number }}
+          path: release-artifacts/
+          retention-days: 30
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pr-${{ github.event.pull_request.number }}-build-${{ github.run_number }}
+          name: "PR #${{ github.event.pull_request.number }} - Linux x64 Build"
+          body: |
+            ## Electron Test Build (Linux x64)
+
+            **PR:** #${{ github.event.pull_request.number }}
+            **Branch:** `${{ github.head_ref }}`
+            **Commit:** `${{ github.event.pull_request.head.sha }}`
+
+            ### How to test
+            1. Download `electron-linux-x64.zip` below
+            2. Extract: `unzip electron-linux-x64.zip -d electron-build`
+            3. Run: `cd electron-build && ./electron`
+
+            > ⚠️ This is a **testing build**, not a release build.
+          files: release-artifacts/*
+          prerelease: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
